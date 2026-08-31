@@ -18,7 +18,7 @@ The **Start** control in *Automatic Pera requests* begins a capped session of up
 
 - TestNet is the default (`416002`), while MainNet is available only after selecting it and checking an explicit real-ALGO acknowledgement.
 - MainNet uses `https://mainnet-api.algonode.cloud` directly over HTTPS; a proxy is not needed and would add an unnecessary trusted intermediary.
-- MainNet review interval is clamped to at least 3 seconds and every transaction still requires a fresh Pera approval. Automatic request sessions are capped at 40 requests and there is no unattended signing.
+- MainNet review interval is clamped to at least 1 second; wallet/relay latency may make observed requests arrive several seconds apart. Every transaction still requires a fresh Pera approval. Automatic request sessions are capped at 40 requests and there is no unattended signing.
 - Recovery phrases and private keys never enter the browser app.
 - Pera remains the signer. The app cannot sign or export the connected account.
 - The account type is selected in Pera; the app displays the connected public address but cannot inspect or prove the recovery phrase. Confirm Quantum Account selection in Pera before signing.
