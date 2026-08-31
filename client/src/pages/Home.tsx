@@ -23,11 +23,14 @@ import {
 } from "lucide-react";
 
 const peraWallet = new PeraWalletConnect({
-  chainId: 416002,
+  chainId: 4160,
   shouldShowSignTxnToast: true,
 });
 
-const ALGOD_URL = "https://testnet-api.algonode.cloud";
+const ALGOD_URLS = {
+  testnet: "https://testnet-api.algonode.cloud",
+  mainnet: "https://mainnet-api.algonode.cloud",
+} as const;
 const MIN_MICRO_ALGO = 100;
 const MAX_MICRO_ALGO = 3000;
 const DEFAULT_INTERVAL = 60;
@@ -58,7 +61,9 @@ function makeActivity(label: string, detail: string, tone: Activity["tone"] = "n
 }
 
 export default function Home() {
-  const algod = useMemo(() => new algosdk.Algodv2("", ALGOD_URL, ""), []);
+  const [network, setNetwork] = useState<"testnet" | "mainnet">("testnet");
+  const [mainnetAcknowledged, setMainnetAcknowledged] = useState(false);
+  const algod = useMemo(() => new algosdk.Algodv2("", ALGOD_URLS[network], ""), [network]);
   const [accountAddress, setAccountAddress] = useState<string | null>(null);
   const [recipient, setRecipient] = useState("");
   const [intervalSeconds, setIntervalSeconds] = useState(DEFAULT_INTERVAL);
@@ -123,6 +128,10 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    if (network === "mainnet" && intervalSeconds < 10) setIntervalSeconds(10);
+  }, [network, intervalSeconds]);
+
   const handleConnect = async () => {
     setIsConnecting(true);
     setNotice(null);
@@ -160,6 +169,10 @@ export default function Home() {
     }
     const receiver = validateRecipient();
     if (!receiver) return;
+    if (network === "mainnet" && !mainnetAcknowledged) {
+      setNotice({ kind: "error", text: "Acknowledge the MainNet warning before creating a real-ALGO draft." });
+      return;
+    }
 
     setIsPreparing(true);
     setNotice(null);
@@ -247,7 +260,7 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <span className="network-pill"><span className="live-dot" /> Algorand TestNet</span>
+            <span className={`network-pill ${network === "mainnet" ? "mainnet-pill" : ""}`}><span className={network === "mainnet" ? "amber-dot" : "live-dot"} /> Algorand {network === "mainnet" ? "MainNet" : "TestNet"}</span>
             <a className="icon-link hidden sm:flex" href="https://docs.perawallet.app/references/pera-connect/" target="_blank" rel="noreferrer" aria-label="Open Pera Connect docs">
               <CircleHelp size={17} />
             </a>
@@ -261,7 +274,7 @@ export default function Home() {
               Quantum safety,<br /><span className="text-mint">with a human</span><br />in the loop.
             </h1>
             <p className="mt-8 max-w-lg text-lg leading-8 text-[#a4b6b6]">
-              Connect Pera, choose the Quantum Account inside the wallet, and approve each small TestNet transfer yourself. No seed phrase ever enters this app.
+              Connect Pera, choose the Quantum Account inside the wallet, and approve each transfer yourself. TestNet is the default; MainNet is available only behind a deliberate manual-approval gate.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-3">
               <button className="primary-btn" onClick={isConnected ? handleDisconnect : handleConnect} disabled={isBusy}>
@@ -297,13 +310,18 @@ export default function Home() {
               <div><p className="eyebrow text-[#55d6c0]">01 / TRANSFER DESIGNER</p><h2>Prepare a TestNet payment</h2></div>
               <div className="step-number">01</div>
             </div>
+            <div className="network-switch" role="group" aria-label="Choose network">
+              <button className={network === "testnet" ? "network-choice active" : "network-choice"} onClick={() => { setNetwork("testnet"); setMainnetAcknowledged(false); }}><span className="live-dot" /> TestNet <small>recommended</small></button>
+              <button className={network === "mainnet" ? "network-choice mainnet-choice active" : "network-choice"} onClick={() => setNetwork("mainnet")}><span className="amber-dot" /> MainNet <small>guarded</small></button>
+            </div>
+            {network === "mainnet" && <label className="risk-check"><input type="checkbox" checked={mainnetAcknowledged} onChange={(event) => setMainnetAcknowledged(event.target.checked)} /><span>I understand this uses real ALGO and every transfer must be reviewed in Pera.</span></label>}
             <div className="field-block">
               <label htmlFor="recipient">Recipient address <span>· your other account</span></label>
               <div className="input-shell"><Link2 size={18} /><input id="recipient" value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Paste a 58-character Algorand address" spellCheck={false} /><button className="copy-btn" onClick={() => navigator.clipboard?.readText().then(setRecipient)} title="Paste from clipboard"><Copy size={16} /></button></div>
               <p className="field-help">Only the public address is used. The account selector stays inside Pera.</p>
             </div>
             <div className="control-row">
-              <div className="range-field"><label htmlFor="interval">Review interval <span>· after each approval</span></label><div className="range-wrap"><input id="interval" type="range" min="10" max="300" step="10" value={intervalSeconds} onChange={(event) => setIntervalSeconds(Number(event.target.value))} /><span>{intervalSeconds}s</span></div></div>
+              <div className="range-field"><label htmlFor="interval">Review interval <span>· after each approval</span></label><div className="range-wrap"><input id="interval" type="range" min={network === "mainnet" ? 10 : 1} max="300" step={network === "mainnet" ? 10 : 1} value={intervalSeconds} onChange={(event) => setIntervalSeconds(Math.max(network === "mainnet" ? 10 : 1, Number(event.target.value)))} /><span>{intervalSeconds}s</span></div></div>
               <div className="amount-lock"><span className="stat-label">RANDOM RANGE</span><strong>0.0001 — 0.003</strong><small>ALGO / TestNet</small></div>
             </div>
             <div className="action-row">
