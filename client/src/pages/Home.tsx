@@ -34,7 +34,7 @@ const ALGOD_URLS = {
 const MIN_MICRO_ALGO = 100;
 const MAX_MICRO_ALGO = 3000;
 const DEFAULT_INTERVAL = 60;
-const AUTO_SESSION_CAP = 20;
+const AUTO_SESSION_CAP = 40;
 
 type Activity = {
   id: string;
