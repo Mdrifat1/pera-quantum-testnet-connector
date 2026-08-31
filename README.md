@@ -12,13 +12,13 @@ A client-only Algorand TestNet dApp for **Pera Wallet approval-based transfers**
 6. Review the exact amount, sender, recipient, and TestNet label, then choose **Open Pera to approve**.
 7. Only after approval does the app submit the signed transaction to the Algorand TestNet node.
 
-The optional **Queue another review** switch only creates another review draft after a successful approval and interval. It never approves or signs on the user's behalf.
+The **Start** control in *Automatic Pera requests* begins a capped session of up to 20 requests. After each successful approval, the next request is prepared after the selected interval and sent to the active Pera session automatically. You still review and approve every request in Pera; the app never approves or signs on your behalf. **Stop** blocks future requests, although a request already open in Pera must be handled there.
 
 ## Safety boundaries
 
 - TestNet is the default (`416002`), while MainNet is available only after selecting it and checking an explicit real-ALGO acknowledgement.
 - MainNet uses `https://mainnet-api.algonode.cloud` directly over HTTPS; a proxy is not needed and would add an unnecessary trusted intermediary.
-- MainNet review interval is clamped to at least 3 seconds and every transaction still requires a fresh Pera approval. There is no unattended signing.
+- MainNet review interval is clamped to at least 3 seconds and every transaction still requires a fresh Pera approval. Automatic request sessions are capped at 20 requests and there is no unattended signing.
 - Recovery phrases and private keys never enter the browser app.
 - Pera remains the signer. The app cannot sign or export the connected account.
 - The account type is selected in Pera; the app displays the connected public address but cannot inspect or prove the recovery phrase. Confirm Quantum Account selection in Pera before signing.

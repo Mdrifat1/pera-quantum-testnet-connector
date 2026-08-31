@@ -34,6 +34,7 @@ const ALGOD_URLS = {
 const MIN_MICRO_ALGO = 100;
 const MAX_MICRO_ALGO = 3000;
 const DEFAULT_INTERVAL = 60;
+const AUTO_SESSION_CAP = 20;
 
 type Activity = {
   id: string;
@@ -76,10 +77,14 @@ export default function Home() {
   const [isPreparing, setIsPreparing] = useState(false);
   const [isSigning, setIsSigning] = useState(false);
   const [autoQueue, setAutoQueue] = useState(false);
+  const [autoRequest, setAutoRequest] = useState(false);
+  const [autoRequestsUsed, setAutoRequestsUsed] = useState(0);
   const [nextReviewIn, setNextReviewIn] = useState<number | null>(null);
   const [notice, setNotice] = useState<{ kind: "info" | "error" | "success"; text: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoQueueRef = useRef(false);
+  const autoRequestRef = useRef(false);
+  const autoRequestsUsedRef = useRef(0);
 
   const pushActivity = (activity: Activity) => {
     setActivities((current) => [activity, ...current].slice(0, 5));
@@ -98,10 +103,13 @@ export default function Home() {
     void peraWallet.disconnect();
     if (timerRef.current) clearTimeout(timerRef.current);
     autoQueueRef.current = false;
+    autoRequestRef.current = false;
     setAccountAddress(null);
     setDraft(null);
     setBalanceMicro(null);
     setAutoQueue(false);
+    setAutoRequest(false);
+    setAutoRequestsUsed(0);
     setNextReviewIn(null);
     setNotice({ kind: "info", text: "Pera session disconnected." });
     pushActivity(makeActivity("Disconnected", "The wallet session was closed"));
@@ -186,7 +194,7 @@ export default function Home() {
         receiver,
         amount: amountMicro,
         suggestedParams,
-        note: new TextEncoder().encode("Pera Quantum TestNet approval demo"),
+        note: new TextEncoder().encode(`Pera Quantum ${network} approval demo`),
       });
       setDraft({ txn, amountMicro, recipient: receiver });
       setNotice({ kind: "info", text: "Draft ready. Review every detail, then open Pera to approve." });
@@ -200,7 +208,7 @@ export default function Home() {
   };
 
   const scheduleNextReview = () => {
-    if (!autoQueueRef.current || !accountAddress) return;
+    if (!autoRequestRef.current || !accountAddress || autoRequestsUsedRef.current >= AUTO_SESSION_CAP) return;
     setNextReviewIn(intervalSeconds);
     let remaining = intervalSeconds;
     const tick = () => {
@@ -208,36 +216,76 @@ export default function Home() {
       setNextReviewIn(remaining > 0 ? remaining : null);
       if (remaining > 0) {
         timerRef.current = setTimeout(tick, 1000);
-      } else if (autoQueueRef.current) {
+      } else if (autoRequestRef.current) {
         void prepareTransfer();
       }
     };
     timerRef.current = setTimeout(tick, 1000);
   };
 
+  const stopAutoRequests = () => {
+    autoRequestRef.current = false;
+    autoQueueRef.current = false;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setNextReviewIn(null);
+    setAutoRequest(false);
+    setAutoQueue(false);
+    pushActivity(makeActivity("Auto-request stopped", "No new Pera request will be created"));
+    setNotice({ kind: "info", text: "Stopped. Any request already open in Pera must be handled there." });
+  };
+
+  const startAutoRequests = async () => {
+    if (!accountAddress) {
+      setNotice({ kind: "error", text: "Connect Pera first." });
+      return;
+    }
+    if (network === "mainnet" && !mainnetAcknowledged) {
+      setNotice({ kind: "error", text: "Acknowledge the MainNet warning before starting auto-request mode." });
+      return;
+    }
+    if (!validateRecipient()) return;
+    autoRequestsUsedRef.current = 0;
+    autoRequestRef.current = true;
+    autoQueueRef.current = true;
+    setAutoRequestsUsed(0);
+    setAutoRequest(true);
+    setAutoQueue(true);
+    setNotice({ kind: "info", text: "Auto-request started. Approve or reject each request in Pera; Stop blocks future requests." });
+    pushActivity(makeActivity("Auto-request started", `Up to ${AUTO_SESSION_CAP} manual approvals · ${network}`));
+    await prepareTransfer();
+  };
+
   const approveAndSend = async () => {
     if (!accountAddress || !draft) return;
     setIsSigning(true);
-    setNotice({ kind: "info", text: "Pera is opening. Review the recipient, amount, and TestNet network there." });
+    setNotice({ kind: "info", text: `Pera is opening. Review the recipient, amount, and ${network} network there.` });
     try {
       const signedTxnGroup = await peraWallet.signTransaction([
         [{ txn: draft.txn, signers: [accountAddress] }],
       ]);
       const { txid } = await algod.sendRawTransaction(signedTxnGroup).do();
-      setNotice({ kind: "success", text: "Approved and submitted to Algorand TestNet." });
+      autoRequestsUsedRef.current += 1;
+      setAutoRequestsUsed(autoRequestsUsedRef.current);
+      setNotice({ kind: "success", text: `Approved and submitted to Algorand ${network}.` });
       pushActivity(makeActivity("Submitted", `${formatAlgo(draft.amountMicro)} ALGO · ${txid.slice(0, 12)}…`, "success"));
       setDraft(null);
       await refreshBalance(accountAddress);
-      scheduleNextReview();
+      if (autoRequestRef.current && autoRequestsUsedRef.current < AUTO_SESSION_CAP) scheduleNextReview();
+      else if (autoRequestRef.current) stopAutoRequests();
     } catch (error) {
       const message = String(error).toLowerCase();
       const cancelled = message.includes("reject") || message.includes("cancel") || message.includes("close");
       setNotice({ kind: cancelled ? "info" : "error", text: cancelled ? "Approval cancelled. Nothing was sent." : "The signed transaction was not submitted." });
       pushActivity(makeActivity(cancelled ? "Approval cancelled" : "Submission failed", "No funds were sent", cancelled ? "neutral" : "danger"));
+      if (autoRequestRef.current) stopAutoRequests();
     } finally {
       setIsSigning(false);
     }
   };
+
+  useEffect(() => {
+    if (autoRequest && draft && !isSigning) void approveAndSend();
+  }, [autoRequest, draft, isSigning]);
 
   const isConnected = Boolean(accountAddress);
   const isBusy = isConnecting || isPreparing || isSigning;
@@ -334,7 +382,7 @@ export default function Home() {
             <div className="panel-heading"><div><p className="eyebrow text-[#e8b574]">02 / WALLET GATE</p><h2>Approve in Pera</h2></div><div className="step-number amber">02</div></div>
             {draft ? (
               <div className="draft-card">
-                <div className="draft-top"><span className="status-chip amber-chip"><span className="amber-dot" /> READY TO REVIEW</span><span className="draft-network">TESTNET</span></div>
+                <div className="draft-top"><span className="status-chip amber-chip"><span className="amber-dot" /> READY TO REVIEW</span><span className="draft-network">{network.toUpperCase()}</span></div>
                 <div className="draft-amount">{formatAlgo(draft.amountMicro)} <span>ALGO</span></div>
                 <div className="draft-meta"><div><span>FROM</span><strong>{accountAddress ? shortAddress(accountAddress) : "—"}</strong></div><ChevronRight size={16} /><div><span>TO</span><strong>{shortAddress(draft.recipient)}</strong></div></div>
                 <button className="approve-btn" onClick={approveAndSend} disabled={isSigning}>{isSigning ? <><RefreshCw className="spin" size={17} /> Waiting for Pera…</> : <><Fingerprint size={17} /> Open Pera to approve</>}</button>
@@ -343,14 +391,14 @@ export default function Home() {
             ) : (
               <div className="empty-state"><div className="empty-icon"><LockKeyhole size={24} /></div><h3>Your approval is the switch</h3><p>Generate a draft to see the exact amount and recipient before Pera opens.</p><div className="mini-steps"><span><b>1</b> Draft</span><ChevronRight size={14} /><span><b>2</b> Review</span><ChevronRight size={14} /><span><b>3</b> Sign</span></div></div>
             )}
-            <div className="auto-row"><div><strong>Queue another review</strong><span>Never auto-approves transactions</span></div><button className={`toggle ${autoQueue ? "toggle-on" : ""}`} onClick={() => setAutoQueue((value) => { const next = !value; autoQueueRef.current = next; if (!next && timerRef.current) { clearTimeout(timerRef.current); setNextReviewIn(null); } return next; })} aria-label="Toggle review queue"><span /></button></div>
+            <div className="auto-row"><div><strong>Automatic Pera requests</strong><span>{autoRequest ? `${autoRequestsUsed}/${AUTO_SESSION_CAP} requests · approve in Pera` : "Starts a capped manual-approval session"}</span></div>{autoRequest ? <button className="stop-btn" onClick={stopAutoRequests}><span /> Stop</button> : <button className="start-btn" onClick={startAutoRequests} disabled={isBusy || !isConnected}><Play size={13} /> Start</button>}</div>
             {nextReviewIn !== null && <p className="countdown"><RefreshCw size={13} /> Next draft in {nextReviewIn}s</p>}
           </div>
         </section>
 
         <section className="lower-grid">
           <div className="panel activity-panel"><div className="panel-heading compact"><div><p className="eyebrow text-[#55d6c0]">LIVE TRACE</p><h2>Session activity</h2></div><span className="trace-label">LOCAL ONLY</span></div><div className="activity-list">{activities.map((activity) => <div className="activity-item" key={activity.id}><span className={`activity-dot ${activity.tone}`} /><div><strong>{activity.label}</strong><span>{activity.detail}</span></div></div>)}</div></div>
-          <div className="panel guard-panel"><div className="guard-icon"><ShieldCheck size={23} /></div><div><p className="eyebrow text-[#55d6c0]">SAFETY CONTRACT</p><h2>TestNet by construction</h2><p>This dApp uses Pera Connect on Algorand TestNet only. It cannot read your phrase, export keys, or approve a transaction without your action in Pera.</p><a href="https://lora.algokit.io/testnet" target="_blank" rel="noreferrer">View TestNet explorer <ExternalLink size={14} /></a></div></div>
+          <div className="panel guard-panel"><div className="guard-icon"><ShieldCheck size={23} /></div><div><p className="eyebrow text-[#55d6c0]">SAFETY CONTRACT</p><h2>{network === "mainnet" ? "MainNet, by deliberate choice" : "TestNet by default"}</h2><p>This dApp cannot read your phrase, export keys, or approve a transaction without your action in Pera. MainNet requires an explicit acknowledgement and remains manually reviewed.</p><a href={network === "mainnet" ? "https://lora.algokit.io/mainnet" : "https://lora.algokit.io/testnet"} target="_blank" rel="noreferrer">View {network === "mainnet" ? "MainNet" : "TestNet"} explorer <ExternalLink size={14} /></a></div></div>
         </section>
 
         <footer className="mt-10 flex flex-col justify-between gap-3 border-t border-white/10 pt-5 text-xs text-[#718585] sm:flex-row"><span>Built for deliberate experimentation · FALCON / Pera Connect</span><span className="flex items-center gap-1.5"><span className="live-dot" /> Nothing signs without you</span></footer>

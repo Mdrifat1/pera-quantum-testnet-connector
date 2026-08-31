@@ -115,6 +115,11 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .auto-row div { display: grid; gap: 4px; }
 .auto-row strong { color: #bccdca; font-size: 12px; font-weight: 600; }
 .auto-row span { color: #607a78; font-size: 10px; }
+.start-btn, .stop-btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(105,223,197,.25); border-radius: 8px; padding: 8px 11px; color: #8fe4d0; background: rgba(77,185,162,.1); font-size: 11px; font-weight: 800; }
+.start-btn:hover { color: #07241f; background: #73e5c9; }
+.stop-btn { border-color: rgba(220,129,114,.27); color: #e69b8e; background: rgba(220,129,114,.1); }
+.stop-btn:hover { color: #2b1210; background: #e69b8e; }
+.stop-btn span { width: 7px; height: 7px; border-radius: 2px; background: currentColor; }
 .toggle { position: relative; width: 40px; height: 22px; border: 1px solid rgba(135,177,172,.25); border-radius: 999px; background: rgba(255,255,255,.06); }
 .toggle span { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #78918c; transition: transform 180ms cubic-bezier(.23,1,.32,1), background-color 180ms ease; }
 .toggle-on { border-color: rgba(94,224,195,.5); background: rgba(78,198,173,.16); }
