@@ -34,7 +34,7 @@ const ALGOD_URLS = {
 const MIN_MICRO_ALGO = 100;
 const MAX_MICRO_ALGO = 3000;
 const DEFAULT_INTERVAL = 60;
-const AUTO_SESSION_CAP = 40;
+const AUTO_SESSION_CAP = 60;
 
 type Activity = {
   id: string;
@@ -137,7 +137,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (network === "mainnet" && intervalSeconds < 1) setIntervalSeconds(1);
+    if (network === "mainnet" && intervalSeconds < 0.8) setIntervalSeconds(0.8);
   }, [network, intervalSeconds]);
 
   const handleConnect = async () => {
@@ -210,12 +210,13 @@ export default function Home() {
   const scheduleNextReview = () => {
     if (!autoRequestRef.current || !accountAddress || autoRequestsUsedRef.current >= AUTO_SESSION_CAP) return;
     setNextReviewIn(intervalSeconds);
-    let remaining = intervalSeconds;
+    let remainingMs = intervalSeconds * 1000;
     const tick = () => {
-      remaining -= 1;
-      setNextReviewIn(remaining > 0 ? remaining : null);
-      if (remaining > 0) {
-        timerRef.current = setTimeout(tick, 1000);
+      remainingMs -= 100;
+      const remaining = Math.max(0, remainingMs / 1000);
+      setNextReviewIn(remaining > 0 ? Number(remaining.toFixed(1)) : null);
+      if (remainingMs > 0) {
+        timerRef.current = setTimeout(tick, Math.min(100, remainingMs));
       } else if (autoRequestRef.current) {
         void prepareTransfer();
       }
@@ -369,7 +370,7 @@ export default function Home() {
               <p className="field-help">Only the public address is used. The account selector stays inside Pera.</p>
             </div>
             <div className="control-row">
-              <div className="range-field"><label htmlFor="interval">Review interval <span>· after each approval</span></label><div className="range-wrap"><input id="interval" type="range" min="1" max="300" step="1" value={intervalSeconds} onChange={(event) => setIntervalSeconds(Math.max(1, Number(event.target.value)))} /><span>{intervalSeconds}s</span></div></div>
+              <div className="range-field"><label htmlFor="interval">Review interval <span>· after each approval</span></label><div className="range-wrap"><input id="interval" type="range" min="0.8" max="300" step="0.1" value={intervalSeconds} onChange={(event) => setIntervalSeconds(Math.max(0.8, Number(event.target.value)))} /><span>{intervalSeconds}s</span></div></div>
               <div className="amount-lock"><span className="stat-label">RANDOM RANGE</span><strong>0.0001 — 0.003</strong><small>ALGO / TestNet</small></div>
             </div>
             <div className="action-row">
