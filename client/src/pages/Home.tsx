@@ -129,7 +129,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (network === "mainnet" && intervalSeconds < 10) setIntervalSeconds(10);
+    if (network === "mainnet" && intervalSeconds < 3) setIntervalSeconds(3);
   }, [network, intervalSeconds]);
 
   const handleConnect = async () => {
@@ -321,7 +321,7 @@ export default function Home() {
               <p className="field-help">Only the public address is used. The account selector stays inside Pera.</p>
             </div>
             <div className="control-row">
-              <div className="range-field"><label htmlFor="interval">Review interval <span>· after each approval</span></label><div className="range-wrap"><input id="interval" type="range" min={network === "mainnet" ? 10 : 1} max="300" step={network === "mainnet" ? 10 : 1} value={intervalSeconds} onChange={(event) => setIntervalSeconds(Math.max(network === "mainnet" ? 10 : 1, Number(event.target.value)))} /><span>{intervalSeconds}s</span></div></div>
+              <div className="range-field"><label htmlFor="interval">Review interval <span>· after each approval</span></label><div className="range-wrap"><input id="interval" type="range" min={network === "mainnet" ? 3 : 1} max="300" step="1" value={intervalSeconds} onChange={(event) => setIntervalSeconds(Math.max(network === "mainnet" ? 3 : 1, Number(event.target.value)))} /><span>{intervalSeconds}s</span></div></div>
               <div className="amount-lock"><span className="stat-label">RANDOM RANGE</span><strong>0.0001 — 0.003</strong><small>ALGO / TestNet</small></div>
             </div>
             <div className="action-row">

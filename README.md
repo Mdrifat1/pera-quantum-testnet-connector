@@ -18,7 +18,7 @@ The optional **Queue another review** switch only creates another review draft a
 
 - TestNet is the default (`416002`), while MainNet is available only after selecting it and checking an explicit real-ALGO acknowledgement.
 - MainNet uses `https://mainnet-api.algonode.cloud` directly over HTTPS; a proxy is not needed and would add an unnecessary trusted intermediary.
-- MainNet review interval is clamped to at least 10 seconds and every transaction still requires a fresh Pera approval. There is no 1-second MainNet loop and no unattended signing.
+- MainNet review interval is clamped to at least 3 seconds and every transaction still requires a fresh Pera approval. There is no unattended signing.
 - Recovery phrases and private keys never enter the browser app.
 - Pera remains the signer. The app cannot sign or export the connected account.
 - The account type is selected in Pera; the app displays the connected public address but cannot inspect or prove the recovery phrase. Confirm Quantum Account selection in Pera before signing.
