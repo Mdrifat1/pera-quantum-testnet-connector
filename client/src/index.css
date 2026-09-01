@@ -73,6 +73,21 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .wallet-queue div { display: grid; gap: 4px; }
 .wallet-queue strong { color: #b8d9d2; font-size: 11px; font-weight: 600; }
 .queue-active { border: 1px solid rgba(106,226,199,.22); border-radius: 999px; padding: 5px 8px; color: #6de1c5; font-size: 9px; font-weight: 800; letter-spacing: .1em; }
+.wallet-status-list { display: grid; gap: 7px; margin-top: 15px; border-top: 1px solid rgba(255,255,255,.08); padding-top: 15px; }
+.queue-title { display: flex; align-items: center; justify-content: space-between; color: #77918d; font-size: 9px; font-weight: 800; letter-spacing: .13em; }
+.queue-title small { color: #506b69; font-size: 9px; font-weight: 500; letter-spacing: 0; }
+.wallet-status { display: grid; grid-template-columns: 8px 58px 1fr auto; align-items: center; gap: 7px; min-width: 0; color: #9bb3ae; font-size: 10px; }
+.wallet-status strong { color: #bcd0ca; font-size: 10px; font-weight: 600; }
+.wallet-status code { overflow: hidden; color: #66817d; font-family: "Space Grotesk", sans-serif; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.queue-dot { width: 6px; height: 6px; border-radius: 50%; background: #708985; }
+.queue-dot.processing { background: #e4b36e; box-shadow: 0 0 9px rgba(228,179,110,.8); }
+.queue-dot.approved { background: #62dfbf; box-shadow: 0 0 8px rgba(98,223,191,.6); }
+.queue-dot.rejected { background: #df8c7e; }
+.queue-dot.stopped { background: #637774; }
+.queue-status { color: #607a76; font-size: 8px; font-weight: 800; letter-spacing: .08em; }
+.queue-status.processing { color: #e4b36e; }
+.queue-status.approved { color: #62dfbf; }
+.queue-status.rejected { color: #df8c7e; }
 .step-number { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid rgba(102,227,201,.23); border-radius: 10px; color: #64d8bf; font-family: "Space Grotesk", sans-serif; font-size: 12px; }
 .step-number.amber { color: #e5b576; border-color: rgba(228,179,110,.28); }
 .field-block { display: grid; gap: 10px; }
