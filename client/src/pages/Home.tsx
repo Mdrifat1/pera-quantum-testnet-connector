@@ -296,8 +296,13 @@ export default function Home() {
       setAutoRequestsUsed(autoRequestsUsedRef.current);
       setNotice({ kind: "success", text: `Approved and submitted to Algorand ${network}.` });
       pushActivity(makeActivity("Submitted", `${formatAlgo(draft.amountMicro)} ALGO · ${txid.slice(0, 12)}…`, "success"));
-      const approvedQueue = walletQueueRef.current.map((item) => item.address === signer ? { ...item, status: "approved" as QueueStatus } : item);
-      const nextIndex = approvedQueue.findIndex((item) => item.status === "pending");
+      let approvedQueue = walletQueueRef.current.map((item) => item.address === signer ? { ...item, status: "approved" as QueueStatus } : item);
+      let nextIndex = approvedQueue.findIndex((item) => item.status === "pending");
+      if (nextIndex < 0 && autoRequestsUsedRef.current < AUTO_SESSION_CAP) {
+        approvedQueue = approvedQueue.map((item) => ({ ...item, status: "pending" as QueueStatus }));
+        nextIndex = 0;
+      }
+      if (nextIndex >= 0 && autoRequestsUsedRef.current < AUTO_SESSION_CAP) approvedQueue[nextIndex] = { ...approvedQueue[nextIndex], status: "processing" };
       walletQueueRef.current = approvedQueue;
       setWalletQueue(approvedQueue);
       setDraft(null);
@@ -311,10 +316,17 @@ export default function Home() {
     } catch (error) {
       const message = String(error).toLowerCase();
       const cancelled = message.includes("reject") || message.includes("cancel") || message.includes("close");
+      autoRequestsUsedRef.current += 1;
+      setAutoRequestsUsed(autoRequestsUsedRef.current);
       setNotice({ kind: cancelled ? "info" : "error", text: cancelled ? "Approval cancelled. Nothing was sent." : "The signed transaction was not submitted." });
       pushActivity(makeActivity(cancelled ? "Approval cancelled" : "Submission failed", "No funds were sent", cancelled ? "neutral" : "danger"));
-      const rejectedQueue = walletQueueRef.current.map((item) => item.address === signer ? { ...item, status: "rejected" as QueueStatus } : item);
-      const nextIndex = rejectedQueue.findIndex((item) => item.status === "pending");
+      let rejectedQueue = walletQueueRef.current.map((item) => item.address === signer ? { ...item, status: "rejected" as QueueStatus } : item);
+      let nextIndex = rejectedQueue.findIndex((item) => item.status === "pending");
+      if (cancelled && nextIndex < 0 && autoRequestsUsedRef.current < AUTO_SESSION_CAP) {
+        rejectedQueue = rejectedQueue.map((item) => ({ ...item, status: "pending" as QueueStatus }));
+        nextIndex = 0;
+      }
+      if (nextIndex >= 0 && autoRequestsUsedRef.current < AUTO_SESSION_CAP) rejectedQueue[nextIndex] = { ...rejectedQueue[nextIndex], status: "processing" };
       walletQueueRef.current = rejectedQueue;
       setWalletQueue(rejectedQueue);
       if (autoRequestRef.current && cancelled && nextIndex >= 0) {

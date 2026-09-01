@@ -12,7 +12,7 @@ A client-only Algorand TestNet dApp for **Pera Wallet approval-based transfers**
 6. Review the exact amount, sender, recipient, and TestNet label, then choose **Open Pera to approve**.
 7. Only after approval does the app submit the signed transaction to the Algorand TestNet node.
 
-The **Start** control in *Automatic Pera requests* begins a capped session of up to 60 requests. With multiple connected wallets, the queue rotates sequentially through at most five accounts; it never sends parallel requests. After each approval or rejection, the next wallet is selected after the configured interval. You still review and approve every request in Pera; the app never approves or signs on your behalf. **Stop** blocks future requests, although a request already open in Pera must be handled there.
+The **Start** control in *Automatic Pera requests* begins a capped session of up to 60 total requests. With multiple connected wallets, the queue rotates sequentially through at most five accounts in round-robin order (for example, wallet 1 → wallet 2 → wallet 1); it never sends parallel requests. After each approval or rejection, the next wallet is selected after the configured interval. You still review and approve every request in Pera; the app never approves or signs on your behalf. **Stop** blocks future requests, although a request already open in Pera must be handled there.
 
 ## Safety boundaries
 
