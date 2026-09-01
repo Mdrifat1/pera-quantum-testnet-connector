@@ -69,6 +69,10 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .mainnet-choice.active { border-color: rgba(228,179,110,.28); color: #edc78e; background: rgba(177,119,48,.12); }
 .risk-check { display: flex; align-items: flex-start; gap: 9px; margin: -7px 0 18px; border: 1px solid rgba(228,179,110,.23); border-radius: 10px; padding: 10px 11px; color: #c9a877; background: rgba(177,119,48,.08); font-size: 10px; line-height: 1.45; }
 .risk-check input { margin-top: 1px; accent-color: #e4b36e; }
+.wallet-queue { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -5px 0 18px; border: 1px solid rgba(106,226,199,.16); border-radius: 10px; padding: 10px 12px; background: rgba(70,176,157,.07); }
+.wallet-queue div { display: grid; gap: 4px; }
+.wallet-queue strong { color: #b8d9d2; font-size: 11px; font-weight: 600; }
+.queue-active { border: 1px solid rgba(106,226,199,.22); border-radius: 999px; padding: 5px 8px; color: #6de1c5; font-size: 9px; font-weight: 800; letter-spacing: .1em; }
 .step-number { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid rgba(102,227,201,.23); border-radius: 10px; color: #64d8bf; font-family: "Space Grotesk", sans-serif; font-size: 12px; }
 .step-number.amber { color: #e5b576; border-color: rgba(228,179,110,.28); }
 .field-block { display: grid; gap: 10px; }

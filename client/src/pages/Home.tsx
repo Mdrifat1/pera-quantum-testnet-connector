@@ -66,6 +66,8 @@ export default function Home() {
   const [mainnetAcknowledged, setMainnetAcknowledged] = useState(false);
   const algod = useMemo(() => new algosdk.Algodv2("", ALGOD_URLS[network], ""), [network]);
   const [accountAddress, setAccountAddress] = useState<string | null>(null);
+  const [connectedAccounts, setConnectedAccounts] = useState<string[]>([]);
+  const [activeAccountIndex, setActiveAccountIndex] = useState(0);
   const [recipient, setRecipient] = useState("");
   const [intervalSeconds, setIntervalSeconds] = useState(DEFAULT_INTERVAL);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -105,6 +107,8 @@ export default function Home() {
     autoQueueRef.current = false;
     autoRequestRef.current = false;
     setAccountAddress(null);
+    setConnectedAccounts([]);
+    setActiveAccountIndex(0);
     setDraft(null);
     setBalanceMicro(null);
     setAutoQueue(false);
@@ -120,9 +124,12 @@ export default function Home() {
       try {
         const accounts = await peraWallet.reconnectSession();
         if (accounts.length) {
-          setAccountAddress(accounts[0]);
-          await refreshBalance(accounts[0]);
-          pushActivity(makeActivity("Session restored", `Pera · ${shortAddress(accounts[0])}`, "success"));
+          const selected = accounts.slice(0, 5);
+          setConnectedAccounts(selected);
+          setActiveAccountIndex(0);
+          setAccountAddress(selected[0]);
+          await refreshBalance(selected[0]);
+          pushActivity(makeActivity("Session restored", `Pera · ${selected.length} wallet${selected.length === 1 ? "" : "s"}`, "success"));
         }
       } catch {
         // A missing or expired session is expected on a first visit.
@@ -145,11 +152,14 @@ export default function Home() {
     setNotice(null);
     try {
       const accounts = await peraWallet.connect();
-      const address = accounts[0];
+      const selected = accounts.slice(0, 5);
+      const address = selected[0];
+      setConnectedAccounts(selected);
+      setActiveAccountIndex(0);
       setAccountAddress(address);
       await refreshBalance(address);
-      setNotice({ kind: "success", text: "Connected. Confirm that Pera selected your Quantum Account before approving." });
-      pushActivity(makeActivity("Pera account connected", `Confirm Quantum selection in Pera · ${shortAddress(address)}`, "success"));
+      setNotice({ kind: "success", text: `Connected ${selected.length}/5 wallet${selected.length === 1 ? "" : "s"}. Confirm the intended Quantum Account in Pera before approving.` });
+      pushActivity(makeActivity("Pera wallets connected", `${selected.length}/5 selected · sequential approval queue`, "success"));
     } catch (error) {
       const code = (error as { data?: { type?: string } })?.data?.type;
       if (code !== "CONNECT_MODAL_CLOSED") {
@@ -221,7 +231,7 @@ export default function Home() {
         void prepareTransfer();
       }
     };
-    timerRef.current = setTimeout(tick, 1000);
+    timerRef.current = setTimeout(tick, Math.min(100, remainingMs));
   };
 
   const stopAutoRequests = () => {
@@ -271,6 +281,11 @@ export default function Home() {
       pushActivity(makeActivity("Submitted", `${formatAlgo(draft.amountMicro)} ALGO · ${txid.slice(0, 12)}…`, "success"));
       setDraft(null);
       await refreshBalance(accountAddress);
+      if (autoRequestRef.current && connectedAccounts.length > 1) {
+        const nextIndex = (activeAccountIndex + 1) % connectedAccounts.length;
+        setActiveAccountIndex(nextIndex);
+        setAccountAddress(connectedAccounts[nextIndex]);
+      }
       if (autoRequestRef.current && autoRequestsUsedRef.current < AUTO_SESSION_CAP) scheduleNextReview();
       else if (autoRequestRef.current) stopAutoRequests();
     } catch (error) {
@@ -278,7 +293,12 @@ export default function Home() {
       const cancelled = message.includes("reject") || message.includes("cancel") || message.includes("close");
       setNotice({ kind: cancelled ? "info" : "error", text: cancelled ? "Approval cancelled. Nothing was sent." : "The signed transaction was not submitted." });
       pushActivity(makeActivity(cancelled ? "Approval cancelled" : "Submission failed", "No funds were sent", cancelled ? "neutral" : "danger"));
-      if (autoRequestRef.current) stopAutoRequests();
+      if (autoRequestRef.current && cancelled && connectedAccounts.length > 1 && autoRequestsUsedRef.current < AUTO_SESSION_CAP) {
+        const nextIndex = (activeAccountIndex + 1) % connectedAccounts.length;
+        setActiveAccountIndex(nextIndex);
+        setAccountAddress(connectedAccounts[nextIndex]);
+        scheduleNextReview();
+      } else if (autoRequestRef.current) stopAutoRequests();
     } finally {
       setIsSigning(false);
     }
@@ -327,7 +347,7 @@ export default function Home() {
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-3">
               <button className="primary-btn" onClick={isConnected ? handleDisconnect : handleConnect} disabled={isBusy}>
-                {isConnected ? <><LogOut size={17} /> Disconnect Pera</> : <><WalletCards size={17} /> {isConnecting ? "Connecting…" : "Connect Pera Wallet"}</>}
+                {isConnected ? <><LogOut size={17} /> Disconnect Pera</> : <><WalletCards size={17} /> {isConnecting ? "Connecting…" : "Connect up to 5 wallets"}</>}
               </button>
               <span className="microcopy"><LockKeyhole size={14} /> non-custodial signing</span>
             </div>
@@ -356,7 +376,7 @@ export default function Home() {
         <section className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
           <div className="panel panel-main">
             <div className="panel-heading">
-              <div><p className="eyebrow text-[#55d6c0]">01 / TRANSFER DESIGNER</p><h2>Prepare a TestNet payment</h2></div>
+              <div><p className="eyebrow text-[#55d6c0]">01 / TRANSFER DESIGNER</p><h2>Prepare a {network === "mainnet" ? "MainNet" : "TestNet"} payment</h2></div>
               <div className="step-number">01</div>
             </div>
             <div className="network-switch" role="group" aria-label="Choose network">
@@ -364,6 +384,7 @@ export default function Home() {
               <button className={network === "mainnet" ? "network-choice mainnet-choice active" : "network-choice"} onClick={() => setNetwork("mainnet")}><span className="amber-dot" /> MainNet <small>guarded</small></button>
             </div>
             {network === "mainnet" && <label className="risk-check"><input type="checkbox" checked={mainnetAcknowledged} onChange={(event) => setMainnetAcknowledged(event.target.checked)} /><span>I understand this uses real ALGO and every transfer must be reviewed in Pera.</span></label>}
+            {connectedAccounts.length > 0 && <div className="wallet-queue"><div><span className="stat-label">CONNECTED WALLETS</span><strong>{connectedAccounts.length}/5 · sequential queue</strong></div><span className="queue-active">ACTIVE {activeAccountIndex + 1}</span></div>}
             <div className="field-block">
               <label htmlFor="recipient">Recipient address <span>· your other account</span></label>
               <div className="input-shell"><Link2 size={18} /><input id="recipient" value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Paste a 58-character Algorand address" spellCheck={false} /><button className="copy-btn" onClick={() => navigator.clipboard?.readText().then(setRecipient)} title="Paste from clipboard"><Copy size={16} /></button></div>
