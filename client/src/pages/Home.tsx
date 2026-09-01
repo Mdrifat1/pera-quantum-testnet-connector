@@ -93,6 +93,7 @@ export default function Home() {
   const autoRequestsUsedRef = useRef(0);
   const walletQueueRef = useRef<QueueItem[]>([]);
   const processingWalletRef = useRef<string | null>(null);
+  const suggestedParamsRef = useRef<{ params: algosdk.SuggestedParams; fetchedAt: number } | null>(null);
 
   const pushActivity = (activity: Activity) => {
     setActivities((current) => [activity, ...current].slice(0, 5));
@@ -186,6 +187,15 @@ export default function Home() {
     return value;
   };
 
+  const prefetchSuggestedParams = async () => {
+    try {
+      const params = await algod.getTransactionParams().do();
+      suggestedParamsRef.current = { params, fetchedAt: Date.now() };
+    } catch {
+      // prepareTransfer will retry synchronously if the prefetch was unavailable.
+    }
+  };
+
   const prepareTransfer = async () => {
     const sender = autoRequestRef.current && processingWalletRef.current ? processingWalletRef.current : accountAddress;
     if (!sender) {
@@ -202,7 +212,11 @@ export default function Home() {
     setIsPreparing(true);
     setNotice(null);
     try {
-      const suggestedParams = await algod.getTransactionParams().do();
+      const cached = suggestedParamsRef.current;
+      const suggestedParams = cached && Date.now() - cached.fetchedAt < 1500
+        ? cached.params
+        : await algod.getTransactionParams().do();
+      suggestedParamsRef.current = null;
       const amountMicro = Math.floor(
         Math.random() * (MAX_MICRO_ALGO - MIN_MICRO_ALGO + 1) + MIN_MICRO_ALGO,
       );
@@ -287,6 +301,7 @@ export default function Home() {
     if (!signer || !draft) return;
     setIsSigning(true);
     setNotice({ kind: "info", text: `Pera is opening. Review the recipient, amount, and ${network} network there.` });
+    void prefetchSuggestedParams();
     try {
       const signedTxnGroup = await peraWallet.signTransaction([
         [{ txn: draft.txn, signers: [signer] }],
@@ -307,6 +322,7 @@ export default function Home() {
       setWalletQueue(approvedQueue);
       setDraft(null);
       await refreshBalance(signer);
+      if (autoRequestRef.current && autoRequestsUsedRef.current < AUTO_SESSION_CAP) void prefetchSuggestedParams();
       if (autoRequestRef.current && nextIndex >= 0) {
         setActiveAccountIndex(nextIndex);
         setAccountAddress(connectedAccounts[nextIndex]);
