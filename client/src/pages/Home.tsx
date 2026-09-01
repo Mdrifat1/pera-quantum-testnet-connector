@@ -33,7 +33,7 @@ const ALGOD_URLS = {
 } as const;
 const MIN_MICRO_ALGO = 100;
 const MAX_MICRO_ALGO = 3000;
-const DEFAULT_INTERVAL = 60;
+const DEFAULT_INTERVAL = 0.8;
 const AUTO_SESSION_CAP = 60;
 
 type Activity = {
