@@ -321,14 +321,14 @@ export default function Home() {
       walletQueueRef.current = approvedQueue;
       setWalletQueue(approvedQueue);
       setDraft(null);
-      await refreshBalance(signer);
-      if (autoRequestRef.current && autoRequestsUsedRef.current < AUTO_SESSION_CAP) void prefetchSuggestedParams();
       if (autoRequestRef.current && nextIndex >= 0) {
         setActiveAccountIndex(nextIndex);
         setAccountAddress(connectedAccounts[nextIndex]);
         processingWalletRef.current = connectedAccounts[nextIndex];
+        if (autoRequestsUsedRef.current < AUTO_SESSION_CAP) void prefetchSuggestedParams();
         scheduleNextReview();
       } else if (autoRequestRef.current) stopAutoRequests();
+      void refreshBalance(signer);
     } catch (error) {
       const message = String(error).toLowerCase();
       const cancelled = message.includes("reject") || message.includes("cancel") || message.includes("close");
@@ -349,6 +349,7 @@ export default function Home() {
         setActiveAccountIndex(nextIndex);
         setAccountAddress(connectedAccounts[nextIndex]);
         processingWalletRef.current = connectedAccounts[nextIndex];
+        if (autoRequestsUsedRef.current < AUTO_SESSION_CAP) void prefetchSuggestedParams();
         scheduleNextReview();
       } else if (autoRequestRef.current) stopAutoRequests();
     } finally {
