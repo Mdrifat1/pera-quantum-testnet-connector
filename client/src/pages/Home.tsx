@@ -22,10 +22,11 @@ import {
   Zap,
 } from "lucide-react";
 
-const peraWallet = new PeraWalletConnect({
-  chainId: 4160,
+const createPeraWallet = (network: "testnet" | "mainnet") => new PeraWalletConnect({
+  chainId: network === "mainnet" ? 416001 : 416002,
   shouldShowSignTxnToast: true,
 });
+let peraWallet = createPeraWallet("testnet");
 
 const ALGOD_URLS = {
   testnet: "https://testnet-api.algonode.cloud",
@@ -34,7 +35,10 @@ const ALGOD_URLS = {
 const MIN_MICRO_ALGO = 100;
 const MAX_MICRO_ALGO = 3000;
 const DEFAULT_INTERVAL = 0.8;
-const AUTO_SESSION_CAP = 60;
+const AUTO_SESSION_CAP = 500;
+const AUTO_DISPATCH_INTERVAL_MS = 500;
+// Pera Connect does not document concurrent signTransaction calls for one session.
+const MAX_IN_FLIGHT_SIGNING = 1;
 
 type Activity = {
   id: string;
@@ -51,6 +55,8 @@ type Draft = {
 
 type QueueStatus = "pending" | "processing" | "approved" | "rejected" | "stopped";
 type QueueItem = { address: string; status: QueueStatus };
+type AutoRequestStatus = "preparing" | "awaiting-approval" | "submitting" | "submitted" | "rejected" | "failed" | "stopped";
+type AutoRequest = { requestId: string; runId: string; walletIndex: number; address: string; signer: string; txn?: Transaction; amountMicro?: number; recipient: string; status: AutoRequestStatus; createdAt: number; signingStartedAt?: number; settledAt?: number; txid?: string; error?: string };
 
 function shortAddress(address: string) {
   return `${address.slice(0, 7)}…${address.slice(-7)}`;
@@ -62,6 +68,10 @@ function formatAlgo(microAlgo: number) {
 
 function makeActivity(label: string, detail: string, tone: Activity["tone"] = "neutral"): Activity {
   return { id: `${Date.now()}-${Math.random()}`, label, detail, tone };
+}
+
+function debugAuto(message: string) {
+  if (import.meta.env.DEV) console.debug(message);
 }
 
 export default function Home() {
@@ -85,14 +95,22 @@ export default function Home() {
   const [autoRequest, setAutoRequest] = useState(false);
   const [autoRequestsUsed, setAutoRequestsUsed] = useState(0);
   const [walletQueue, setWalletQueue] = useState<QueueItem[]>([]);
+  const [autoRequests, setAutoRequests] = useState<Record<string, AutoRequest>>({});
   const [nextReviewIn, setNextReviewIn] = useState<number | null>(null);
   const [notice, setNotice] = useState<{ kind: "info" | "error" | "success"; text: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dispatchTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoQueueRef = useRef(false);
   const autoRequestRef = useRef(false);
   const autoRequestsUsedRef = useRef(0);
   const walletQueueRef = useRef<QueueItem[]>([]);
   const processingWalletRef = useRef<string | null>(null);
+  const runIdRef = useRef<string | null>(null);
+  const nextWalletIndexRef = useRef(0);
+  const inFlightRequestsRef = useRef<Map<string, AutoRequest>>(new Map());
+  const autoRequestsRef = useRef<Record<string, AutoRequest>>({});
+  const dispatchingRef = useRef(false);
+  const requestSequenceRef = useRef(0);
   const suggestedParamsRef = useRef<{ params: algosdk.SuggestedParams; fetchedAt: number } | null>(null);
 
   const pushActivity = (activity: Activity) => {
@@ -111,6 +129,9 @@ export default function Home() {
   const handleDisconnect = () => {
     void peraWallet.disconnect();
     if (timerRef.current) clearTimeout(timerRef.current);
+    if (dispatchTimerRef.current) clearInterval(dispatchTimerRef.current);
+    dispatchTimerRef.current = null;
+    runIdRef.current = null;
     autoQueueRef.current = false;
     autoRequestRef.current = false;
     setAccountAddress(null);
@@ -147,6 +168,9 @@ export default function Home() {
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (dispatchTimerRef.current) clearInterval(dispatchTimerRef.current);
+      dispatchTimerRef.current = null;
+      runIdRef.current = null;
     };
   }, []);
 
@@ -176,6 +200,16 @@ export default function Home() {
     } finally {
       setIsConnecting(false);
     }
+  };
+
+  const selectNetwork = (nextNetwork: "testnet" | "mainnet") => {
+    if (accountAddress) {
+      setNotice({ kind: "error", text: "Disconnect Pera before changing networks so the wallet session uses the correct chain." });
+      return;
+    }
+    peraWallet = createPeraWallet(nextNetwork);
+    setNetwork(nextNetwork);
+    if (nextNetwork === "testnet") setMainnetAcknowledged(false);
   };
 
   const validateRecipient = () => {
@@ -238,27 +272,87 @@ export default function Home() {
     }
   };
 
-  const scheduleNextReview = () => {
-    if (!autoRequestRef.current || !accountAddress || autoRequestsUsedRef.current >= AUTO_SESSION_CAP) return;
-    setNextReviewIn(intervalSeconds);
-    let remainingMs = intervalSeconds * 1000;
-    const tick = () => {
-      remainingMs -= 100;
-      const remaining = Math.max(0, remainingMs / 1000);
-      setNextReviewIn(remaining > 0 ? Number(remaining.toFixed(1)) : null);
-      if (remainingMs > 0) {
-        timerRef.current = setTimeout(tick, Math.min(100, remainingMs));
-      } else if (autoRequestRef.current) {
-        void prepareTransfer();
-      }
-    };
-    timerRef.current = setTimeout(tick, Math.min(100, remainingMs));
+  const updateAutoRequest = (request: AutoRequest) => {
+    autoRequestsRef.current = { ...autoRequestsRef.current, [request.requestId]: request };
+    setAutoRequests(autoRequestsRef.current);
   };
+
+  const settleAutoRequest = (request: AutoRequest, status: AutoRequestStatus, extra: Partial<AutoRequest> = {}) => {
+    const settled = { ...request, ...extra, status, settledAt: Date.now() };
+    inFlightRequestsRef.current.delete(request.requestId);
+    if (runIdRef.current === request.runId) {
+      updateAutoRequest(settled);
+      setWalletQueue((queue) => queue.map((item, index) => index === request.walletIndex ? { ...item, status: status === "submitted" ? "approved" : status === "rejected" ? "rejected" : status === "failed" ? "rejected" : item.status } : item));
+    }
+  };
+
+  const dispatchAutoRequest = async (runId: string) => {
+    if (dispatchingRef.current || !autoRequestRef.current || runIdRef.current !== runId || inFlightRequestsRef.current.size >= MAX_IN_FLIGHT_SIGNING) return;
+    dispatchingRef.current = true;
+    let request: AutoRequest | null = null;
+    try {
+    if (autoRequestsUsedRef.current >= AUTO_SESSION_CAP) {
+      if (dispatchTimerRef.current) clearInterval(dispatchTimerRef.current);
+      dispatchTimerRef.current = null;
+      autoRequestRef.current = false;
+      setAutoRequest(false);
+      setAutoQueue(false);
+      setNotice({ kind: "info", text: "Automatic session reached its 500-request cap. Open Pera requests can still be handled there." });
+      return;
+    }
+    const walletIndex = nextWalletIndexRef.current % connectedAccounts.length;
+    const address = connectedAccounts[walletIndex];
+    if (!address) return;
+    nextWalletIndexRef.current = (walletIndex + 1) % connectedAccounts.length;
+    autoRequestsUsedRef.current += 1;
+    setAutoRequestsUsed(autoRequestsUsedRef.current);
+    requestSequenceRef.current += 1;
+    request = { requestId: `${runId}-${address}-${requestSequenceRef.current}`, runId, walletIndex, address, signer: address, recipient: recipient.trim(), status: "preparing", createdAt: Date.now() };
+    inFlightRequestsRef.current.set(request.requestId, request);
+    updateAutoRequest(request);
+    debugAuto(`[DISPATCH] ${new Date().toISOString()} run=${runId} request=${request.requestId} wallet=${address} reserved`);
+    const cached = suggestedParamsRef.current;
+    const canReuseSuggestedParams = Boolean(cached && Date.now() - cached.fetchedAt < 1500);
+    const suggestedParams = canReuseSuggestedParams ? cached!.params : await algod.getTransactionParams().do();
+    if (!canReuseSuggestedParams) suggestedParamsRef.current = { params: suggestedParams, fetchedAt: Date.now() };
+      if (!autoRequestRef.current || runIdRef.current !== runId) return;
+      const amountMicro = Math.floor(Math.random() * (MAX_MICRO_ALGO - MIN_MICRO_ALGO + 1) + MIN_MICRO_ALGO);
+      const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({ sender: address, receiver: request.recipient, amount: amountMicro, suggestedParams, note: new TextEncoder().encode(`Pera Quantum ${network} approval demo`) });
+      request = { ...request, txn, amountMicro, status: "awaiting-approval", signingStartedAt: Date.now() };
+      inFlightRequestsRef.current.set(request.requestId, request);
+      updateAutoRequest(request);
+      setWalletQueue((queue) => queue.map((item, index) => index === walletIndex ? { ...item, status: "processing" } : item));
+      debugAuto(`[SIGNING_START] ${new Date().toISOString()} request=${request.requestId}`);
+      if (!request.txn) throw new Error("Automatic request transaction was not prepared.");
+      const signed = await peraWallet.signTransaction([[{ txn: request.txn, signers: [request.signer] }]]);
+      request = { ...request, status: "submitting" };
+      updateAutoRequest(request);
+      const { txid } = await algod.sendRawTransaction(signed).do();
+      settleAutoRequest(request, "submitted", { txid });
+      pushActivity(makeActivity("Submitted", `${formatAlgo(request.amountMicro ?? 0)} ALGO · ${txid.slice(0, 12)}…`, "success"));
+    } catch (error) {
+      const message = String(error).toLowerCase();
+      if (request) settleAutoRequest(request, message.includes("reject") || message.includes("cancel") || message.includes("close") ? "rejected" : "failed", { error: String(error) });
+    } finally {
+      dispatchingRef.current = false;
+      if (request && inFlightRequestsRef.current.has(request.requestId) && runIdRef.current !== runId) inFlightRequestsRef.current.delete(request.requestId);
+      if (autoRequestRef.current && runIdRef.current === runId && autoRequestsUsedRef.current < AUTO_SESSION_CAP) queueMicrotask(() => void dispatchAutoRequest(runId));
+    }
+  };
+
+  // Manual drafts do not schedule follow-up work; automatic work uses dispatchAutoRequest.
+  const scheduleNextReview = () => {};
 
   const stopAutoRequests = () => {
     autoRequestRef.current = false;
     autoQueueRef.current = false;
     if (timerRef.current) clearTimeout(timerRef.current);
+    if (dispatchTimerRef.current) clearInterval(dispatchTimerRef.current);
+    dispatchTimerRef.current = null;
+    runIdRef.current = null;
+    const stoppedRequests = Object.fromEntries(Object.entries(autoRequestsRef.current).map(([id, request]) => [id, request.status === "awaiting-approval" ? { ...request, status: "stopped" as AutoRequestStatus } : request]));
+    autoRequestsRef.current = stoppedRequests;
+    setAutoRequests(stoppedRequests);
     setNextReviewIn(null);
     setAutoRequest(false);
     setAutoQueue(false);
@@ -281,19 +375,27 @@ export default function Home() {
     if (!validateRecipient()) return;
     const queue = connectedAccounts.map((address, index) => ({ address, status: index === 0 ? "processing" as QueueStatus : "pending" as QueueStatus }));
     walletQueueRef.current = queue;
-    processingWalletRef.current = connectedAccounts[0];
     setWalletQueue(queue);
     setActiveAccountIndex(0);
     setAccountAddress(connectedAccounts[0]);
     autoRequestsUsedRef.current = 0;
+    inFlightRequestsRef.current = new Map();
+    autoRequestsRef.current = {};
+    setAutoRequests({});
+    requestSequenceRef.current = 0;
+    dispatchingRef.current = false;
+    nextWalletIndexRef.current = 0;
+    const runId = `${Date.now()}-${Math.random()}`;
+    runIdRef.current = runId;
     autoRequestRef.current = true;
     autoQueueRef.current = true;
     setAutoRequestsUsed(0);
     setAutoRequest(true);
     setAutoQueue(true);
     setNotice({ kind: "info", text: "Auto-request started. Approve or reject each request in Pera; Stop blocks future requests." });
-    pushActivity(makeActivity("Queue created", `${connectedAccounts.length} wallet${connectedAccounts.length === 1 ? "" : "s"} · first request processing`, "success"));
-    await prepareTransfer();
+    pushActivity(makeActivity("Queue created", `${connectedAccounts.length} wallet${connectedAccounts.length === 1 ? "" : "s"} · 500ms dispatch scheduler`, "success"));
+    void dispatchAutoRequest(runId);
+    dispatchTimerRef.current = setInterval(() => void dispatchAutoRequest(runId), AUTO_DISPATCH_INTERVAL_MS);
   };
 
   const approveAndSend = async () => {
@@ -358,7 +460,7 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (autoRequest && draft && !isSigning) void approveAndSend();
+    if (!autoRequest && draft && !isSigning) void approveAndSend();
   }, [autoRequest, draft, isSigning]);
 
   const isConnected = Boolean(accountAddress);
@@ -433,11 +535,11 @@ export default function Home() {
               <div className="step-number">01</div>
             </div>
             <div className="network-switch" role="group" aria-label="Choose network">
-              <button className={network === "testnet" ? "network-choice active" : "network-choice"} onClick={() => { setNetwork("testnet"); setMainnetAcknowledged(false); }}><span className="live-dot" /> TestNet <small>recommended</small></button>
-              <button className={network === "mainnet" ? "network-choice mainnet-choice active" : "network-choice"} onClick={() => setNetwork("mainnet")}><span className="amber-dot" /> MainNet <small>guarded</small></button>
+              <button className={network === "testnet" ? "network-choice active" : "network-choice"} onClick={() => selectNetwork("testnet")}><span className="live-dot" /> TestNet <small>recommended</small></button>
+              <button className={network === "mainnet" ? "network-choice mainnet-choice active" : "network-choice"} onClick={() => selectNetwork("mainnet")}><span className="amber-dot" /> MainNet <small>guarded</small></button>
             </div>
             {network === "mainnet" && <label className="risk-check"><input type="checkbox" checked={mainnetAcknowledged} onChange={(event) => setMainnetAcknowledged(event.target.checked)} /><span>I understand this uses real ALGO and every transfer must be reviewed in Pera.</span></label>}
-            {connectedAccounts.length > 0 && <div className="wallet-queue"><div><span className="stat-label">CONNECTED WALLETS</span><strong>{connectedAccounts.length}/5 · sequential queue</strong></div><span className="queue-active">ACTIVE {activeAccountIndex + 1}</span></div>}
+            {connectedAccounts.length > 0 && <div className="wallet-queue"><div><span className="stat-label">CONNECTED WALLETS</span><strong>{connectedAccounts.length}/5 · managed request queue</strong></div><span className="queue-active">ACTIVE {activeAccountIndex + 1}</span></div>}
             <div className="field-block">
               <label htmlFor="recipient">Recipient address <span>· your other account</span></label>
               <div className="input-shell"><Link2 size={18} /><input id="recipient" value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="Paste a 58-character Algorand address" spellCheck={false} /><button className="copy-btn" onClick={() => navigator.clipboard?.readText().then(setRecipient)} title="Paste from clipboard"><Copy size={16} /></button></div>
@@ -466,7 +568,7 @@ export default function Home() {
             ) : (
               <div className="empty-state"><div className="empty-icon"><LockKeyhole size={24} /></div><h3>Your approval is the switch</h3><p>Generate a draft to see the exact amount and recipient before Pera opens.</p><div className="mini-steps"><span><b>1</b> Draft</span><ChevronRight size={14} /><span><b>2</b> Review</span><ChevronRight size={14} /><span><b>3</b> Sign</span></div></div>
             )}
-            {walletQueue.length > 0 && <div className="wallet-status-list"><div className="queue-title"><span>REQUEST QUEUE</span><small>{walletQueue.length} wallet{walletQueue.length === 1 ? "" : "s"}</small></div>{walletQueue.map((item, index) => <div className="wallet-status" key={item.address}><span className={`queue-dot ${item.status}`} /><strong>Wallet {index + 1}</strong><code>{shortAddress(item.address)}</code><span className={`queue-status ${item.status}`}>{item.status.toUpperCase()}</span></div>)}</div>}
+            {walletQueue.length > 0 && <div className="wallet-status-list"><div className="queue-title"><span>REQUEST QUEUE</span><small>{walletQueue.length} wallet{walletQueue.length === 1 ? "" : "s"}</small></div>{walletQueue.map((item, index) => <div className="wallet-status" key={item.address}><span className={`queue-dot ${item.status}`} /><strong>Wallet {index + 1}</strong><code>{shortAddress(item.address)}</code><span className={`queue-status ${item.status}`}>{item.status.toUpperCase()}</span></div>)}{Object.values(autoRequests).slice(-5).map((request) => <div className="wallet-status" key={request.requestId}><span className={`queue-dot ${request.status === "awaiting-approval" ? "processing" : request.status === "submitted" ? "approved" : request.status}`} /><strong>Request {request.walletIndex + 1}</strong><code>{shortAddress(request.address)}</code><span className={`queue-status ${request.status === "awaiting-approval" ? "processing" : request.status === "submitted" ? "approved" : request.status}`}>{request.status.toUpperCase()}</span></div>)}</div>}
             <div className="auto-row"><div><strong>Automatic Pera requests</strong><span>{autoRequest ? `${autoRequestsUsed}/${AUTO_SESSION_CAP} requests · approve in Pera` : "Starts a capped manual-approval session"}</span></div>{autoRequest ? <button className="stop-btn" onClick={stopAutoRequests}><span /> Stop</button> : <button className="start-btn" onClick={startAutoRequests} disabled={isBusy || !isConnected}><Play size={13} /> Start</button>}</div>
             {nextReviewIn !== null && <p className="countdown"><RefreshCw size={13} /> Next draft in {nextReviewIn}s</p>}
           </div>
