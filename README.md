@@ -12,13 +12,13 @@ A client-only Algorand TestNet dApp for **Pera Wallet approval-based transfers**
 6. Review the exact amount, sender, recipient, and TestNet label, then choose **Open Pera to approve**.
 7. Only after approval does the app submit the signed transaction to the Algorand TestNet node.
 
-The **Start** control in *Automatic Pera requests* begins a capped session of up to 60 total requests. With multiple connected wallets, the queue rotates sequentially through at most five accounts in round-robin order (for example, wallet 1 → wallet 2 → wallet 1); it never sends parallel requests. After each approval or rejection, the next wallet is selected after the configured interval. You still review and approve every request in Pera; the app never approves or signs on your behalf. **Stop** blocks future requests, although a request already open in Pera must be handled there.
+The **Start** control in *Automatic Pera requests* begins a capped session of up to 500 total requests. It selects up to five connected accounts in round-robin order and evaluates dispatches every 500ms. Pera Connect does not document concurrent signing requests for one session, so the app keeps one Pera approval request in flight at a time rather than issuing unsupported overlapping prompts. You still review and approve every request in Pera; the app never approves or signs on your behalf. **Stop** blocks future requests, although a request already open in Pera must be handled there.
 
 ## Safety boundaries
 
 - TestNet is the default (`416002`), while MainNet is available only after selecting it and checking an explicit real-ALGO acknowledgement.
 - MainNet uses `https://mainnet-api.algonode.cloud` directly over HTTPS; a proxy is not needed and would add an unnecessary trusted intermediary.
-- MainNet review interval is clamped to at least 0.8 seconds; wallet/relay latency may make observed requests arrive several seconds apart. Every transaction still requires a fresh Pera approval. Automatic request sessions are capped at 60 requests and there is no unattended signing.
+- MainNet review interval is clamped to at least 0.8 seconds; wallet/relay latency may make observed requests arrive several seconds apart. Every transaction still requires a fresh Pera approval. Automatic request sessions are capped at 500 requests and there is no unattended signing.
 - Recovery phrases and private keys never enter the browser app.
 - Pera remains the signer. The app cannot sign or export the connected account.
 - The account type is selected in Pera; the app displays the connected public address but cannot inspect or prove the recovery phrase. Confirm Quantum Account selection in Pera before signing.
