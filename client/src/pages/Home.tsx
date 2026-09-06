@@ -33,6 +33,7 @@ const ALGOD_URLS = {
 } as const;
 const MIN_MICRO_ALGO = 100;
 const MAX_MICRO_ALGO = 3000;
+const MIN_TX_FEE_MICRO_ALGO = 1000;
 const DEFAULT_INTERVAL = 0.8;
 const AUTO_SESSION_CAP = 60;
 
@@ -229,6 +230,11 @@ export default function Home() {
       const amountMicro = Math.floor(
         Math.random() * (MAX_MICRO_ALGO - MIN_MICRO_ALGO + 1) + MIN_MICRO_ALGO,
       );
+      const account = await algod.accountInformation(sender).do();
+      const availableMicroAlgo = Number(account.amount ?? 0);
+      if (availableMicroAlgo < amountMicro + MIN_TX_FEE_MICRO_ALGO) {
+        throw new Error(`Insufficient balance: need at least ${formatAlgo(amountMicro + MIN_TX_FEE_MICRO_ALGO)} ALGO including fee, available ${formatAlgo(availableMicroAlgo)} ALGO.`);
+      }
       const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
         sender,
         receiver,
@@ -239,9 +245,10 @@ export default function Home() {
       setDraft({ txn, amountMicro, recipient: receiver });
       setNotice({ kind: "info", text: "Draft ready. Review every detail, then open Pera to approve." });
       pushActivity(makeActivity("Draft prepared", `${formatAlgo(amountMicro)} ALGO · awaiting your approval`));
-    } catch {
-      setNotice({ kind: "error", text: "Could not fetch TestNet parameters. Check your connection and retry." });
-      pushActivity(makeActivity("Draft failed", "No transaction was sent", "danger"));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Could not prepare the transaction.";
+      setNotice({ kind: "error", text: detail.slice(0, 180) });
+      pushActivity(makeActivity("Draft failed", detail.slice(0, 120), "danger"));
     } finally {
       setIsPreparing(false);
     }
@@ -316,6 +323,7 @@ export default function Home() {
         [{ txn: draft.txn, signers: [signer] }],
       ]);
       const { txid } = await algod.sendRawTransaction(signedTxnGroup).do();
+      if (!txid) throw new Error("Algod accepted the request but did not return a transaction ID.");
       autoRequestsUsedRef.current += 1;
       setAutoRequestsUsed(autoRequestsUsedRef.current);
       setNotice({ kind: "success", text: `Approved and submitted to Algorand ${network}.` });
