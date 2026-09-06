@@ -65,6 +65,18 @@ function makeActivity(label: string, detail: string, tone: Activity["tone"] = "n
   return { id: `${Date.now()}-${Math.random()}`, label, detail, tone };
 }
 
+function describeError(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "object" && error !== null) {
+    const value = error as { message?: unknown; response?: { body?: unknown; text?: unknown } };
+    if (typeof value.message === "string") return value.message;
+    if (value.response?.body) return JSON.stringify(value.response.body);
+    if (value.response?.text) return String(value.response.text);
+    try { return JSON.stringify(error); } catch { return "Unknown wallet or Algod error"; }
+  }
+  return String(error || "Unknown wallet or Algod error");
+}
+
 export default function Home() {
   const [network, setNetwork] = useState<"testnet" | "mainnet">("testnet");
   const [mainnetAcknowledged, setMainnetAcknowledged] = useState(false);
@@ -246,7 +258,7 @@ export default function Home() {
       setNotice({ kind: "info", text: "Draft ready. Review every detail, then open Pera to approve." });
       pushActivity(makeActivity("Draft prepared", `${formatAlgo(amountMicro)} ALGO · awaiting your approval`));
     } catch (error) {
-      const detail = error instanceof Error ? error.message : "Could not prepare the transaction.";
+      const detail = describeError(error);
       setNotice({ kind: "error", text: detail.slice(0, 180) });
       pushActivity(makeActivity("Draft failed", detail.slice(0, 120), "danger"));
     } finally {
@@ -271,7 +283,7 @@ export default function Home() {
     timerRef.current = setTimeout(tick, Math.min(100, remainingMs));
   };
 
-  const stopAutoRequests = () => {
+  const stopAutoRequests = (preserveNotice = false) => {
     autoRequestRef.current = false;
     autoQueueRef.current = false;
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -282,7 +294,7 @@ export default function Home() {
     walletQueueRef.current = stoppedQueue;
     setWalletQueue(stoppedQueue);
     pushActivity(makeActivity("Auto-request stopped", "No new Pera request will be created"));
-    setNotice({ kind: "info", text: "Stopped. Any request already open in Pera must be handled there." });
+    if (!preserveNotice) setNotice({ kind: "info", text: "Stopped. Any request already open in Pera must be handled there." });
   };
 
   const startAutoRequests = async () => {
@@ -360,7 +372,7 @@ export default function Home() {
       const cancelled = message.includes("reject") || message.includes("cancel") || message.includes("close");
       autoRequestsUsedRef.current += 1;
       setAutoRequestsUsed(autoRequestsUsedRef.current);
-      const errorDetail = error instanceof Error ? error.message : String(error);
+      const errorDetail = describeError(error);
       setNotice({ kind: cancelled ? "info" : "error", text: cancelled ? "Pera approval was cancelled or rejected. Nothing was sent." : `Pera approval completed, but submission failed: ${errorDetail.slice(0, 140)}` });
       pushActivity(makeActivity(cancelled ? "Approval rejected" : "Submission failed", cancelled ? "No funds were sent" : errorDetail.slice(0, 120), cancelled ? "neutral" : "danger"));
       let rejectedQueue = walletQueueRef.current.map((item) => item.address === signer ? { ...item, status: cancelled ? "rejected" as QueueStatus : "failed" as QueueStatus } : item);
@@ -378,7 +390,7 @@ export default function Home() {
         processingWalletRef.current = connectedAccounts[nextIndex];
         if (autoRequestsUsedRef.current < AUTO_SESSION_CAP) void prefetchSuggestedParams();
         scheduleNextReview();
-      } else if (autoRequestRef.current) stopAutoRequests();
+      } else if (autoRequestRef.current) stopAutoRequests(true);
     } finally {
       setIsSigning(false);
     }
@@ -494,7 +506,7 @@ export default function Home() {
               <div className="empty-state"><div className="empty-icon"><LockKeyhole size={24} /></div><h3>Your approval is the switch</h3><p>Generate a draft to see the exact amount and recipient before Pera opens.</p><div className="mini-steps"><span><b>1</b> Draft</span><ChevronRight size={14} /><span><b>2</b> Review</span><ChevronRight size={14} /><span><b>3</b> Sign</span></div></div>
             )}
             {walletQueue.length > 0 && <div className="wallet-status-list"><div className="queue-title"><span>REQUEST QUEUE</span><small>{walletQueue.length} wallet{walletQueue.length === 1 ? "" : "s"}</small></div>{walletQueue.map((item, index) => <div className="wallet-status" key={item.address}><span className={`queue-dot ${item.status}`} /><strong>Wallet {index + 1}</strong><code>{shortAddress(item.address)}</code><span className={`queue-status ${item.status}`}>{item.status.toUpperCase()}</span></div>)}</div>}
-            <div className="auto-row"><div><strong>Automatic Pera requests</strong><span>{autoRequest ? `${autoRequestsUsed}/${AUTO_SESSION_CAP} requests · approve in Pera` : "Starts a capped manual-approval session"}</span></div>{autoRequest ? <button className="stop-btn" onClick={stopAutoRequests}><span /> Stop</button> : <button className="start-btn" onClick={startAutoRequests} disabled={isBusy || !isConnected}><Play size={13} /> Start</button>}</div>
+            <div className="auto-row"><div><strong>Automatic Pera requests</strong><span>{autoRequest ? `${autoRequestsUsed}/${AUTO_SESSION_CAP} requests · approve in Pera` : "Starts a capped manual-approval session"}</span></div>{autoRequest ? <button className="stop-btn" onClick={() => stopAutoRequests()}><span /> Stop</button> : <button className="start-btn" onClick={startAutoRequests} disabled={isBusy || !isConnected}><Play size={13} /> Start</button>}</div>
             {nextReviewIn !== null && <p className="countdown"><RefreshCw size={13} /> Next draft in {nextReviewIn}s</p>}
           </div>
         </section>
