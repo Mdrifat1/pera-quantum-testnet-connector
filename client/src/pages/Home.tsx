@@ -127,6 +127,14 @@ export default function Home() {
     pushActivity(makeActivity("Disconnected", "The wallet session was closed"));
   };
 
+  const changeNetwork = (nextNetwork: "testnet" | "mainnet") => {
+    if (nextNetwork === network) return;
+    if (isConnected) handleDisconnect();
+    setMainnetAcknowledged(false);
+    setNetwork(nextNetwork);
+    setNotice({ kind: "info", text: `Switched to ${nextNetwork === "mainnet" ? "MainNet" : "TestNet"}. Reconnect Pera on this network before creating a draft.` });
+  };
+
   useEffect(() => {
     const reconnect = async () => {
       try {
@@ -149,7 +157,7 @@ export default function Home() {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, []);
+  }, [network]);
 
   useEffect(() => {
     if (network === "mainnet" && intervalSeconds < 0.8) setIntervalSeconds(0.8);
@@ -435,8 +443,8 @@ export default function Home() {
               <div className="step-number">01</div>
             </div>
             <div className="network-switch" role="group" aria-label="Choose network">
-              <button className={network === "testnet" ? "network-choice active" : "network-choice"} onClick={() => { setNetwork("testnet"); setMainnetAcknowledged(false); }}><span className="live-dot" /> TestNet <small>recommended</small></button>
-              <button className={network === "mainnet" ? "network-choice mainnet-choice active" : "network-choice"} onClick={() => setNetwork("mainnet")}><span className="amber-dot" /> MainNet <small>guarded</small></button>
+              <button className={network === "testnet" ? "network-choice active" : "network-choice"} onClick={() => changeNetwork("testnet")}><span className="live-dot" /> TestNet <small>recommended</small></button>
+              <button className={network === "mainnet" ? "network-choice mainnet-choice active" : "network-choice"} onClick={() => changeNetwork("mainnet")}><span className="amber-dot" /> MainNet <small>guarded</small></button>
             </div>
             {network === "mainnet" && <label className="risk-check"><input type="checkbox" checked={mainnetAcknowledged} onChange={(event) => setMainnetAcknowledged(event.target.checked)} /><span>I understand this uses real ALGO and every transfer must be reviewed in Pera.</span></label>}
             {connectedAccounts.length > 0 && <div className="wallet-queue"><div><span className="stat-label">CONNECTED WALLETS</span><strong>{connectedAccounts.length}/5 · sequential queue</strong></div><span className="queue-active">ACTIVE {activeAccountIndex + 1}</span></div>}
