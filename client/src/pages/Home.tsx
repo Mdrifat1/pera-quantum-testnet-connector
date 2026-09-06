@@ -22,12 +22,10 @@ import {
   Zap,
 } from "lucide-react";
 
-const peraWallet = new PeraWalletConnect({
-  // 4160 is Pera Connect's all-Algorand-networks compatibility chain.
-  // The selected algod endpoint still determines where the draft is submitted.
-  chainId: 4160,
-  shouldShowSignTxnToast: true,
-});
+const peraWalletByNetwork: Record<"testnet" | "mainnet", PeraWalletConnect> = {
+  testnet: new PeraWalletConnect({ chainId: 416002, shouldShowSignTxnToast: true }),
+  mainnet: new PeraWalletConnect({ chainId: 416001, shouldShowSignTxnToast: true }),
+};
 
 const ALGOD_URLS = {
   testnet: "https://testnet-api.algonode.cloud",
@@ -95,6 +93,7 @@ export default function Home() {
   const autoRequestsUsedRef = useRef(0);
   const walletQueueRef = useRef<QueueItem[]>([]);
   const processingWalletRef = useRef<string | null>(null);
+  const peraWallet = peraWalletByNetwork[network];
   const suggestedParamsRef = useRef<{ params: algosdk.SuggestedParams; fetchedAt: number } | null>(null);
 
   const pushActivity = (activity: Activity) => {
