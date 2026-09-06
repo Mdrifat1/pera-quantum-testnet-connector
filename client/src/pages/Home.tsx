@@ -34,6 +34,7 @@ const ALGOD_URLS = {
 const MIN_MICRO_ALGO = 100;
 const MAX_MICRO_ALGO = 3000;
 const MIN_TX_FEE_MICRO_ALGO = 1000;
+const MIN_ACCOUNT_BALANCE_MICRO_ALGO = 100_000;
 const DEFAULT_INTERVAL = 0.8;
 const AUTO_SESSION_CAP = 60;
 
@@ -258,8 +259,25 @@ export default function Home() {
       );
       const account = await algod.accountInformation(sender).do();
       const availableMicroAlgo = Number(account.amount ?? 0);
-      if (availableMicroAlgo < amountMicro + MIN_TX_FEE_MICRO_ALGO) {
-        throw new Error(`Insufficient balance: need at least ${formatAlgo(amountMicro + MIN_TX_FEE_MICRO_ALGO)} ALGO including fee, available ${formatAlgo(availableMicroAlgo)} ALGO.`);
+      const senderMinBalance = Number(account.minBalance ?? 0);
+      const senderRequired = senderMinBalance + amountMicro + MIN_TX_FEE_MICRO_ALGO;
+      if (availableMicroAlgo < senderRequired) {
+        throw new Error(`Insufficient spendable balance: need ${formatAlgo(senderRequired)} ALGO including ${formatAlgo(senderMinBalance)} ALGO reserve and fee, available ${formatAlgo(availableMicroAlgo)} ALGO.`);
+      }
+      try {
+        const receiverAccount = await algod.accountInformation(receiver).do();
+        const receiverBalance = Number(receiverAccount.amount ?? 0);
+        const receiverMinBalance = Math.max(MIN_ACCOUNT_BALANCE_MICRO_ALGO, Number(receiverAccount.minBalance ?? 0));
+        if (receiverBalance + amountMicro < receiverMinBalance) {
+          const required = receiverMinBalance - receiverBalance;
+          throw new Error(`Recipient balance is ${formatAlgo(receiverBalance)} ALGO, below its Algorand minimum ${formatAlgo(receiverMinBalance)} ALGO. Send at least ${formatAlgo(required)} ALGO to this recipient, or choose an already-funded address.`);
+        }
+      } catch (receiverError) {
+        const detail = describeError(receiverError).toLowerCase();
+        if (!detail.includes("404") && !detail.includes("not found") && !detail.includes("account does not exist")) throw receiverError;
+        if (amountMicro < MIN_ACCOUNT_BALANCE_MICRO_ALGO) {
+          throw new Error(`This recipient account is not funded yet. A new Algorand account needs at least 0.1 ALGO; the current random amount ${formatAlgo(amountMicro)} ALGO is too small.`);
+        }
       }
       const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
         sender,
