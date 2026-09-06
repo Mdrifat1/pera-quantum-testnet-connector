@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 
 const peraWallet = new PeraWalletConnect({
+  // 4160 is Pera Connect's all-Algorand-networks compatibility chain.
+  // The selected algod endpoint still determines where the draft is submitted.
   chainId: 4160,
   shouldShowSignTxnToast: true,
 });
@@ -49,7 +51,7 @@ type Draft = {
   recipient: string;
 };
 
-type QueueStatus = "pending" | "processing" | "approved" | "rejected" | "stopped";
+type QueueStatus = "pending" | "processing" | "approved" | "rejected" | "failed" | "stopped";
 type QueueItem = { address: string; status: QueueStatus };
 
 function shortAddress(address: string) {
@@ -334,9 +336,10 @@ export default function Home() {
       const cancelled = message.includes("reject") || message.includes("cancel") || message.includes("close");
       autoRequestsUsedRef.current += 1;
       setAutoRequestsUsed(autoRequestsUsedRef.current);
-      setNotice({ kind: cancelled ? "info" : "error", text: cancelled ? "Approval cancelled. Nothing was sent." : "The signed transaction was not submitted." });
-      pushActivity(makeActivity(cancelled ? "Approval cancelled" : "Submission failed", "No funds were sent", cancelled ? "neutral" : "danger"));
-      let rejectedQueue = walletQueueRef.current.map((item) => item.address === signer ? { ...item, status: "rejected" as QueueStatus } : item);
+      const errorDetail = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: cancelled ? "info" : "error", text: cancelled ? "Pera approval was cancelled or rejected. Nothing was sent." : `Pera approval completed, but submission failed: ${errorDetail.slice(0, 140)}` });
+      pushActivity(makeActivity(cancelled ? "Approval rejected" : "Submission failed", cancelled ? "No funds were sent" : errorDetail.slice(0, 120), cancelled ? "neutral" : "danger"));
+      let rejectedQueue = walletQueueRef.current.map((item) => item.address === signer ? { ...item, status: cancelled ? "rejected" as QueueStatus : "failed" as QueueStatus } : item);
       let nextIndex = rejectedQueue.findIndex((item) => item.status === "pending");
       if (cancelled && nextIndex < 0 && autoRequestsUsedRef.current < AUTO_SESSION_CAP) {
         rejectedQueue = rejectedQueue.map((item) => ({ ...item, status: "pending" as QueueStatus }));
