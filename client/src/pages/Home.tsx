@@ -319,9 +319,13 @@ export default function Home() {
     setNotice({ kind: "info", text: `Pera is opening. Review the recipient, amount, and ${network} network there.` });
     void prefetchSuggestedParams();
     try {
-      const signedTxnGroup = await peraWallet.signTransaction([
-        [{ txn: draft.txn, signers: [signer] }],
-      ]);
+      const signedTxnGroup = await peraWallet.signTransaction(
+        [[{ txn: draft.txn, signers: [signer] }]],
+        signer,
+      );
+      if (!signedTxnGroup.length || !signedTxnGroup[0]?.length) {
+        throw new Error("Pera returned no signed transaction bytes for the selected wallet.");
+      }
       const { txid } = await algod.sendRawTransaction(signedTxnGroup).do();
       if (!txid) throw new Error("Algod accepted the request but did not return a transaction ID.");
       autoRequestsUsedRef.current += 1;
