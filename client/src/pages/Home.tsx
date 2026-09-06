@@ -326,12 +326,17 @@ export default function Home() {
       if (!signedTxnGroup.length || !signedTxnGroup[0]?.length) {
         throw new Error("Pera returned no signed transaction bytes for the selected wallet.");
       }
+      pushActivity(makeActivity("Signed", `${signedTxnGroup[0].length} byte payload · ${shortAddress(signer)}`));
+      pushActivity(makeActivity("Broadcasting", `Sending to Algorand ${network} algod`));
       const { txid } = await algod.sendRawTransaction(signedTxnGroup).do();
       if (!txid) throw new Error("Algod accepted the request but did not return a transaction ID.");
       autoRequestsUsedRef.current += 1;
       setAutoRequestsUsed(autoRequestsUsedRef.current);
       setNotice({ kind: "success", text: `Approved and submitted to Algorand ${network}.` });
       pushActivity(makeActivity("Submitted", `${formatAlgo(draft.amountMicro)} ALGO · ${txid.slice(0, 12)}…`, "success"));
+      void algosdk.waitForConfirmation(algod, txid, 4)
+        .then(() => pushActivity(makeActivity("Confirmed", `${txid.slice(0, 12)}… is confirmed on ${network}`, "success")))
+        .catch(() => pushActivity(makeActivity("Confirmation pending", `${txid.slice(0, 12)}… was submitted; check the explorer later`)));
       let approvedQueue = walletQueueRef.current.map((item) => item.address === signer ? { ...item, status: "approved" as QueueStatus } : item);
       let nextIndex = approvedQueue.findIndex((item) => item.status === "pending");
       if (nextIndex < 0 && autoRequestsUsedRef.current < AUTO_SESSION_CAP) {
