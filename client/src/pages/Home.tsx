@@ -77,6 +77,20 @@ function describeError(error: unknown) {
   return String(error || "Unknown wallet or Algod error");
 }
 
+function extractSignedBlobs(value: unknown): Uint8Array[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("Pera returned an empty signed transaction response.");
+  }
+  return value.map((item, index) => {
+    if (item instanceof Uint8Array) return item;
+    if (item && typeof item === "object" && "blob" in item) {
+      const blob = (item as { blob?: unknown }).blob;
+      if (blob instanceof Uint8Array) return blob;
+    }
+    throw new Error(`Pera returned an unsupported signed transaction format at index ${index}.`);
+  });
+}
+
 export default function Home() {
   const [network, setNetwork] = useState<"testnet" | "mainnet">("testnet");
   const [mainnetAcknowledged, setMainnetAcknowledged] = useState(false);
@@ -331,17 +345,20 @@ export default function Home() {
     setNotice({ kind: "info", text: `Pera is opening. Review the recipient, amount, and ${network} network there.` });
     void prefetchSuggestedParams();
     try {
-      const signedTxnGroup = await peraWallet.signTransaction(
+      const requestId = `${Date.now()}-${signer.slice(0, 8)}`;
+      console.info("[Quantum Relay] signing:start", { requestId, network, signer, recipient: draft.recipient, amountMicro: draft.amountMicro });
+      const signedResponse = await peraWallet.signTransaction(
         [[{ txn: draft.txn, signers: [signer] }]],
         signer,
       );
-      if (!signedTxnGroup.length || !signedTxnGroup[0]?.length) {
-        throw new Error("Pera returned no signed transaction bytes for the selected wallet.");
-      }
-      pushActivity(makeActivity("Signed", `${signedTxnGroup[0].length} byte payload · ${shortAddress(signer)}`));
-      pushActivity(makeActivity("Broadcasting", `Sending to Algorand ${network} algod`));
-      const { txid } = await algod.sendRawTransaction(signedTxnGroup).do();
+      const signedBlobs = extractSignedBlobs(signedResponse);
+      console.info("[Quantum Relay] signing:complete", { requestId, blobCount: signedBlobs.length, blobSizes: signedBlobs.map((blob) => blob.byteLength) });
+      pushActivity(makeActivity("Signed", `${signedBlobs.length} blob${signedBlobs.length === 1 ? "" : "s"} · ${shortAddress(signer)}`));
+      pushActivity(makeActivity("Broadcasting", `Sending signed bytes to ${network} algod`));
+      console.info("[Quantum Relay] broadcast:start", { requestId, network, blobCount: signedBlobs.length });
+      const { txid } = await algod.sendRawTransaction(signedBlobs).do();
       if (!txid) throw new Error("Algod accepted the request but did not return a transaction ID.");
+      console.info("[Quantum Relay] broadcast:complete", { requestId, txid, network });
       autoRequestsUsedRef.current += 1;
       setAutoRequestsUsed(autoRequestsUsedRef.current);
       setNotice({ kind: "success", text: `Approved and submitted to Algorand ${network}.` });
@@ -368,6 +385,7 @@ export default function Home() {
       } else if (autoRequestRef.current) stopAutoRequests();
       void refreshBalance(signer);
     } catch (error) {
+      console.error("[Quantum Relay] transaction:lifecycle:error", error);
       const message = String(error).toLowerCase();
       const cancelled = message.includes("reject") || message.includes("cancel") || message.includes("close");
       autoRequestsUsedRef.current += 1;
